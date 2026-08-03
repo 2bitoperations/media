@@ -417,6 +417,11 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
   private CodecParameters activeCodecParameters;
   private CodecParameters lastDispatchedCodecParameters;
   private ImmutableSet<String> subscribedCodecParameterKeys;
+  // Diagnostic-only counters for pairing each MediaCodec#queueInputBuffer call with its
+  // corresponding dequeued output BufferInfo#presentationTimeUs, video track only. No behavior
+  // change; see PTSDIAG log lines in feedInputBuffer/drainOutputBuffer.
+  private long ptsDiagInputCount;
+  private long ptsDiagOutputCount;
 
   /**
    * @param context A context.
@@ -1112,6 +1117,8 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
         codecReconfigured ? RECONFIGURATION_STATE_WRITE_PENDING : RECONFIGURATION_STATE_NONE;
     hasSkippedFlushAndWaitingForQueueInputBuffer = false;
     skippedFlushOffsetUs = 0;
+    ptsDiagInputCount = 0;
+    ptsDiagOutputCount = 0;
   }
 
   /**
@@ -1652,6 +1659,11 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
     onQueueInputBuffer(buffer);
     int flags = getCodecBufferFlags(buffer);
     presentationTimeUs += skippedFlushOffsetUs;
+    if (getTrackType() == C.TRACK_TYPE_VIDEO) {
+      Log.i(
+          "PTSDIAG",
+          "IN seq=" + (ptsDiagInputCount++) + " queuedPts=" + presentationTimeUs);
+    }
     if (bufferEncrypted) {
       checkNotNull(codec)
           .queueSecureInputBuffer(
@@ -2265,6 +2277,14 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
         outputBuffer.limit(outputBufferInfo.offset + outputBufferInfo.size);
       }
       updateOutputFormatForTime(outputBufferInfo.presentationTimeUs);
+      if (getTrackType() == C.TRACK_TYPE_VIDEO) {
+        Log.i(
+            "PTSDIAG",
+            "OUT seq="
+                + (ptsDiagOutputCount++)
+                + " outputPts="
+                + outputBufferInfo.presentationTimeUs);
+      }
       if (DEBUG_LOG_ENABLED) {
         Log.d(
             DEBUG_LOG_TAG,
